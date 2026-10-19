@@ -37,7 +37,7 @@ When a bug is being fixed in a skill or codebase — a reported bug, an audit fi
 - Network scripts become testable only with an offline/dry-run mode (prints what it would send) plus a mock transport; otherwise the test checks source text and passes on broken logic.
 - Spy tests work only when the caller imports the same module object: patch the attribute (`markers.scan`, `classifier.classify`) and restore it in `finally`.
 - Every test class restores patched module attributes through the shared SnapshotMixin — never hand-write `finally`.
-- New modules read files with `with open(...)`; the closed-files test scans all skill paths, not one folder.
+- A protocol test must read the process's startup banner before the first op response and use the protocol's actual key names: reading a response to a nonexistent op shifts every later answer (the test reads the wrong line), and a request with a wrong key name returns an empty result that reads as "the feature is broken" instead of "the test is wrong". Distinguish an empty result from a missing response, and test the unknown-op branch separately.
 
 ## Report format (to the user, in Russian)
 
@@ -54,7 +54,9 @@ Commit only if new bugs == 0. If the fix introduced new bugs: fix them, re-run t
 
 Run the skill's clean-install harness (or build one if absent): clone from the LOCAL repo, temporary HOME, `setup.sh`, minimal fresh Hermes (only the tables the skill needs), full run of every mode (dry-run → tick → manual → commit), verify the state dir is created in the temp HOME, verify profile/config values are read from the real config files, verify the guard tests cover both paths. Report the pass count. A compile pass (`py_compile`) is NOT a clean install: it passes scripts that fail live.
 
-Two classes only a clean-install run exposes (proven 2026-10-19 on brain-hack-analyze, harness 18/18 after fixes):
+Ordering: the harness clones the COMMITTED state, so the fixes must be committed before the run — the commit gate is satisfied by the comparison, and any bug the clean-install run finds is fixed, re-verified and committed in the same round (the harness itself is part of the round and gets committed too). Network steps in the install path are verified as the printed plan, not as a real install, and the harness must say so in its report.
+
+Two classes only a clean-install run exposes:
 - **Import-time reads of installer-created artifacts.** Files that `setup.sh`/`model_setup.py` generate are not in the repo, so a module that reads them at import crashes on a fresh clone — the skill does not degrade, it breaks entirely, and the crash surfaces through the test suite (`FileNotFoundError` at import, then `TypeError` in tests that assumed a real catalog). Tests of logic must not depend on an installed model: fake the catalog and bypass the availability check; the module must answer an honest `unavailable` instead of crashing.
 - **Process-global pollution.** A plugin that inserts its skill path into `sys.path` at import and never removes it makes a later import in the same process resolve to the author's home copy, not the clean clone. The test passed alone and failed in the full run — order-dependent failures are evidence of shared mutable state, not of a broken test.
 
